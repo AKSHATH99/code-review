@@ -1,4 +1,3 @@
-from app.chunks import DEFAULT_CHUNK_SIZE
 from app.llm import (
     LONG_REQUEST_TIMEOUT,
     get_model_name,
@@ -57,7 +56,7 @@ def answer_repository_question(
     repository: str, question: str, attachment: dict | None = None
 ) -> dict:
     total_chunks, sources = search_chunks(
-        repository, DEFAULT_CHUNK_SIZE, question, limit=CONTEXT_TOP_K
+        repository, question, limit=CONTEXT_TOP_K
     )
     prompt = build_repository_prompt(question, sources, attachment)
     provider = provider_name()

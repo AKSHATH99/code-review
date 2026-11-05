@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -10,39 +8,18 @@ from app.analysis.pipeline import (
     RepositoryAnalysisError,
     analyze_repository,
 )
-from app.github import parse_github_repo_url, repository_extract_dir
 from app.llm_errors import (
     LLMConfigurationError,
     LLMConnectionError,
     LLMResponseError,
 )
+from app.routes.common import resolve_extract_dir as _resolve_extract_dir
 
 router = APIRouter()
 
 
 class AnalysisRequest(BaseModel):
     repo_url: str
-
-
-def _resolve_extract_dir(repo_url: str) -> tuple[str, Path]:
-    try:
-        repository = parse_github_repo_url(repo_url)
-        extract_dir = repository_extract_dir(repository)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except OSError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Could not access repository storage: {exc}",
-        )
-
-    if not extract_dir.is_dir():
-        raise HTTPException(
-            status_code=404,
-            detail="Repository has not been downloaded and extracted yet.",
-        )
-
-    return repository, extract_dir
 
 
 @router.post("/analysis")

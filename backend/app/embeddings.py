@@ -5,7 +5,7 @@ import numpy as np
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 EMBEDDING_BATCH_SIZE = 32
 
-_EMBEDDING_CACHE: dict[tuple[str, int], tuple[list[dict], np.ndarray]] = {}
+_EMBEDDING_CACHE: dict[str, tuple[list[dict], np.ndarray]] = {}
 
 
 class EmbeddingGenerationError(Exception):
@@ -68,7 +68,6 @@ def embed_query(query: str) -> np.ndarray:
 
 def cache_embeddings(
     repository: str,
-    chunk_size: int,
     chunks: list[dict],
     embeddings: list[dict],
 ) -> None:
@@ -76,10 +75,10 @@ def cache_embeddings(
         [embedding["values"] for embedding in embeddings],
         dtype=np.float32,
     )
-    _EMBEDDING_CACHE[(repository, chunk_size)] = (chunks, matrix)
+    _EMBEDDING_CACHE[repository] = (chunks, matrix)
 
 
 def get_cached_embeddings(
-    repository: str, chunk_size: int
+    repository: str,
 ) -> tuple[list[dict], np.ndarray] | None:
-    return _EMBEDDING_CACHE.get((repository, chunk_size))
+    return _EMBEDDING_CACHE.get(repository)

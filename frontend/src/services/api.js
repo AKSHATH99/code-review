@@ -87,6 +87,20 @@ export function fetchRepositoryEmbeddings(repoUrl) {
   })
 }
 
+export function inspectRepositoryFile(repoUrl, filePath) {
+  return requestJson(
+    `/repositories/parse?repo_url=${encodeURIComponent(repoUrl)}&path=${encodeURIComponent(filePath)}`,
+    { timeoutMs: 60000 },
+  )
+}
+
+export function fetchIngestionReport(repoUrl) {
+  return requestJson(
+    `/repositories/ingestion?repo_url=${encodeURIComponent(repoUrl)}`,
+    { timeoutMs: 120000 },
+  )
+}
+
 export function searchRepository(repoUrl, query) {
   return requestJson('/repositories/search', {
     method: 'POST',

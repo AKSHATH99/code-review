@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import FileSidebar from './components/FileSidebar.jsx'
+import ParserInspector from './components/ParserInspector.jsx'
 import RepositoryCard from './components/RepositoryCard.jsx'
 import StatusBadge from './components/StatusBadge.jsx'
 import {
@@ -55,7 +56,7 @@ function providerLabel(provider) {
 
 export default function App() {
   const [backendStatus, setBackendStatus] = useState('checking')
-  const [url, setUrl] = useState('')
+  const [url, setUrl] = useState('https://github.com/AKSHATH99/illustrated-work-gallery')
   const [downloadStatus, setDownloadStatus] = useState('idle')
   const [downloadResult, setDownloadResult] = useState(null)
   const [downloadError, setDownloadError] = useState('')
@@ -70,7 +71,9 @@ export default function App() {
   const [embeddingData, setEmbeddingData] = useState(null)
   const [embeddingsError, setEmbeddingsError] = useState('')
   const [embeddingIndex, setEmbeddingIndex] = useState(0)
-  const [ollamaMessage, setOllamaMessage] = useState('')
+  const [ollamaMessage, setOllamaMessage] = useState(
+    'what projects are showcased in this portfolio',
+  )
   const [ollamaStatus, setOllamaStatus] = useState('idle')
   const [ollamaResult, setOllamaResult] = useState(null)
   const [ollamaError, setOllamaError] = useState('')
@@ -86,6 +89,7 @@ export default function App() {
   const [files, setFiles] = useState([])
   const [filesError, setFilesError] = useState('')
   const [selectedFilePath, setSelectedFilePath] = useState('')
+  const [developerView, setDeveloperView] = useState(false)
   const [attachment, setAttachment] = useState(null)
   const [attachmentStatus, setAttachmentStatus] = useState('idle')
   const [attachmentError, setAttachmentError] = useState('')
@@ -706,8 +710,9 @@ export default function App() {
               <div>
                 <span className="result-label">Source chunks</span>
                 <p className="hint">
-                  Extracted text files are split into 20-line chunks
-                  automatically.
+                  JavaScript, JSX, TypeScript, TSX and JSON files are split
+                  along their own syntax; files without a grammar are split by
+                  character size with a small overlap.
                 </p>
               </div>
               <StatusBadge status={pipelineBadgeStatus(chunksStatus)} />
@@ -735,11 +740,11 @@ export default function App() {
                 <div className="chunk-viewer">
                   <div className="chunk-summary">
                     <span>
-                      {chunkData.total_chunks.toLocaleString()} chunks ·{' '}
-                      {chunkData.chunk_size}-line size
+                      {chunkData.total_chunks.toLocaleString()} chunks
                     </span>
                     <span>
-                      Chunk #{currentChunk.chunk_index} · lines{' '}
+                      Chunk #{currentChunk.chunk_index} ·{' '}
+                      {currentChunk.chunk_type ?? 'text'} · lines{' '}
                       {currentChunk.start_line}–{currentChunk.end_line}
                     </span>
                   </div>
@@ -887,6 +892,40 @@ export default function App() {
                   </div>
                 </div>
               ))}
+          </section>
+        )}
+
+        {downloadStatus === 'downloaded' && downloadResult && (
+          <section
+            className="chunks-panel"
+            aria-label="Parser inspection (developer view)"
+          >
+            <div className="chunks-header">
+              <div>
+                <span className="result-label">Tree-sitter inspection</span>
+                <p className="hint">
+                  Developer view of ingestion: syntax trees, extracted
+                  structures, structure-aware chunks, and pipeline totals.
+                  JavaScript, JSX, TypeScript, TSX and JSON files chunk along
+                  their own syntax; other file types split by size.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setDeveloperView((open) => !open)}
+                aria-expanded={developerView}
+              >
+                {developerView ? 'Hide inspector' : 'Show inspector'}
+              </button>
+            </div>
+
+            {developerView && (
+              <ParserInspector
+                repoUrl={`https://github.com/${downloadResult.repository}`}
+                filePath={selectedFilePath || currentChunk?.file_path || ''}
+              />
+            )}
           </section>
         )}
 

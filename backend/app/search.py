@@ -10,9 +10,9 @@ class EmbeddingsNotReadyError(Exception):
 
 
 def search_chunks(
-    repository: str, chunk_size: int, query: str, limit: int = TOP_K
+    repository: str, query: str, limit: int = TOP_K
 ) -> tuple[int, list[dict]]:
-    cached = get_cached_embeddings(repository, chunk_size)
+    cached = get_cached_embeddings(repository)
     if cached is None:
         raise EmbeddingsNotReadyError(
             "Embeddings have not been generated for this repository yet. "

@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.analysis import router as analysis_router
+from app.routes.inspect import router as inspect_router
 from app.routes.ollama import router as ollama_router
 from app.routes.repositories import router as repositories_router
 
@@ -33,6 +34,9 @@ app.include_router(
 )
 app.include_router(
     analysis_router, prefix="/repositories", tags=["analysis"]
+)
+app.include_router(
+    inspect_router, prefix="/repositories", tags=["inspection"]
 )
 app.include_router(ollama_router, prefix="/api/ollama", tags=["ollama"])
 
