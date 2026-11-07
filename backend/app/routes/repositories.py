@@ -20,6 +20,8 @@ from app.github import (
     fetch_repository_details,
     parse_github_repo_url,
 )
+from app.hybrid_search import search_hybrid
+from app.lexical_search import LexicalIndexNotReadyError, build_lexical_index
 from app.routes.common import (
     read_repository_text_file,
     resolve_extract_dir as _resolve_extract_dir,
@@ -124,6 +126,15 @@ def repository_embeddings(payload: EmbeddingsRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
     cache_embeddings(repository, chunks, embeddings)
+
+    try:
+        build_lexical_index(repository, chunks)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not build the lexical index: {exc}",
+        ) from exc
+
     ingestion.mark_embedded(repository, len(chunks))
 
     return {
@@ -150,6 +161,33 @@ def repository_search(payload: SearchRequest):
     try:
         total_chunks, results = search_chunks(repository, query)
     except EmbeddingsNotReadyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except EmbeddingGenerationError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "repository": repository,
+        "query": query,
+        "model": EMBEDDING_MODEL_NAME,
+        "total_chunks": total_chunks,
+        "results": results,
+    }
+
+
+@router.post("/search/hybrid")
+def repository_hybrid_search(payload: SearchRequest):
+    try:
+        repository = parse_github_repo_url(payload.repo_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    query = payload.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query must not be empty.")
+
+    try:
+        total_chunks, results = search_hybrid(repository, query)
+    except (EmbeddingsNotReadyError, LexicalIndexNotReadyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except EmbeddingGenerationError as exc:
         raise HTTPException(status_code=500, detail=str(exc))

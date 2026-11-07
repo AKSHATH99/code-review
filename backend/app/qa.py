@@ -1,10 +1,10 @@
+from app.hybrid_search import search_hybrid
 from app.llm import (
     LONG_REQUEST_TIMEOUT,
     get_model_name,
     provider_name,
     send_message,
 )
-from app.search import search_chunks
 
 CONTEXT_TOP_K = 15
 
@@ -55,7 +55,7 @@ def build_repository_prompt(
 def answer_repository_question(
     repository: str, question: str, attachment: dict | None = None
 ) -> dict:
-    total_chunks, sources = search_chunks(
+    total_chunks, sources = search_hybrid(
         repository, question, limit=CONTEXT_TOP_K
     )
     prompt = build_repository_prompt(question, sources, attachment)

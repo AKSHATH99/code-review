@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 from app.embeddings import EmbeddingGenerationError
 from app.github import parse_github_repo_url
+from app.lexical_search import LexicalIndexNotReadyError
 from app.llm import get_model_name, provider_name, send_message
 from app.llm_errors import (
     LLMConfigurationError,
@@ -87,7 +88,7 @@ def ollama_ask(payload: AskRequest):
 
     try:
         return answer_repository_question(repository, question, attachment)
-    except EmbeddingsNotReadyError as exc:
+    except (EmbeddingsNotReadyError, LexicalIndexNotReadyError) as exc:
         raise HTTPException(
             status_code=409,
             detail=(
