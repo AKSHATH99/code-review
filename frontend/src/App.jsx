@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import FileSidebar from './components/FileSidebar.jsx'
 import ParserInspector from './components/ParserInspector.jsx'
 import RepositoryCard from './components/RepositoryCard.jsx'
+import RepositoryChat from './components/RepositoryChat.jsx'
 import StatusBadge from './components/StatusBadge.jsx'
 import {
   analyzeRepository,
@@ -18,6 +19,8 @@ import {
 } from './services/api.js'
 
 const MAX_ATTACHMENT_CHARS = 50000
+const DEFAULT_REPO_URL = 'https://github.com/AKSHATH99/illustrated-work-gallery'
+const DEFAULT_QUESTION = 'what projects are showcased in this portfolio'
 
 function formatFileSize(size) {
   if (size < 1024) return `${size} B`
@@ -56,7 +59,7 @@ function providerLabel(provider) {
 
 export default function App() {
   const [backendStatus, setBackendStatus] = useState('checking')
-  const [url, setUrl] = useState('https://github.com/AKSHATH99/illustrated-work-gallery')
+  const [url, setUrl] = useState(DEFAULT_REPO_URL)
   const [downloadStatus, setDownloadStatus] = useState('idle')
   const [downloadResult, setDownloadResult] = useState(null)
   const [downloadError, setDownloadError] = useState('')
@@ -71,12 +74,6 @@ export default function App() {
   const [embeddingData, setEmbeddingData] = useState(null)
   const [embeddingsError, setEmbeddingsError] = useState('')
   const [embeddingIndex, setEmbeddingIndex] = useState(0)
-  const [ollamaMessage, setOllamaMessage] = useState(
-    'what projects are showcased in this portfolio',
-  )
-  const [ollamaStatus, setOllamaStatus] = useState('idle')
-  const [ollamaResult, setOllamaResult] = useState(null)
-  const [ollamaError, setOllamaError] = useState('')
   const [analysisStatus, setAnalysisStatus] = useState('idle')
   const [analysisResult, setAnalysisResult] = useState(null)
   const [analysisError, setAnalysisError] = useState('')
@@ -258,10 +255,6 @@ export default function App() {
     setAttachmentStatus('idle')
     setAttachmentError('')
     latestFileRequest.current += 1
-    setOllamaMessage('')
-    setOllamaStatus('idle')
-    setOllamaResult(null)
-    setOllamaError('')
     latestOllamaRequest.current += 1
     setAnalysisStatus('idle')
     setAnalysisResult(null)
@@ -404,45 +397,19 @@ export default function App() {
     setAttachmentError('')
   }
 
-  async function handleOllamaSubmit(event) {
-    event.preventDefault()
-    if (
-      !downloadResult ||
-      !repoReady ||
-      attachmentStatus === 'loading'
-    ) {
-      return
-    }
-
-    const question = ollamaMessage.trim()
-    if (!question) {
-      setOllamaStatus('error')
-      setOllamaError('Enter a question about the repository.')
-      setOllamaResult(null)
-      return
-    }
-
+  async function askQuestion(question) {
     const requestId = latestOllamaRequest.current + 1
     latestOllamaRequest.current = requestId
 
-    setOllamaStatus('loading')
-    setOllamaError('')
-    setOllamaResult(null)
-
-    try {
-      const result = await askRepositoryQuestion({
-        repoUrl: `https://github.com/${downloadResult.repository}`,
-        question,
-        attachment,
-      })
-      if (latestOllamaRequest.current !== requestId) return
-      setOllamaResult(result)
-      setOllamaStatus('success')
-    } catch (error) {
-      if (latestOllamaRequest.current !== requestId) return
-      setOllamaError(error.message)
-      setOllamaStatus('error')
+    const result = await askRepositoryQuestion({
+      repoUrl: `https://github.com/${downloadResult.repository}`,
+      question,
+      attachment,
+    })
+    if (latestOllamaRequest.current !== requestId) {
+      throw new Error('A newer question replaced this one.')
     }
+    return result
   }
 
   async function handleAnalyzeRepository() {
@@ -481,8 +448,6 @@ export default function App() {
   const analysisModelLabel = generationProvider
     ? `${providerLabel(generationProvider.provider)} · ${generationProvider.model}`
     : 'Detecting…'
-  const ollamaBusy =
-    ollamaStatus === 'loading' || attachmentStatus === 'loading'
   const pipelineBusy =
     downloadStatus === 'downloading' ||
     chunksStatus === 'loading' ||
@@ -491,6 +456,12 @@ export default function App() {
     downloadStatus === 'downloaded' &&
     chunksStatus === 'success' &&
     embeddingsStatus === 'success'
+  const repoSummaryVisible = Boolean(
+    details ||
+      detailsLoading ||
+      downloadResult ||
+      (detailsError && downloadStatus !== 'failed'),
+  )
 
   let gateMessage = 'Enter a repository link to start asking questions.'
   if (downloadStatus === 'downloading') {
@@ -514,593 +485,486 @@ export default function App() {
     }
   }
 
-  return (
-    <div className={`app${downloadResult ? ' app-with-files' : ''}`}>
-      <header className="site-header">
-        <div className="brand">
-          <p className="eyebrow">Repository intelligence</p>
-          <h1 className="brand-title">GitScope</h1>
-          <p className="tagline">AI-powered GitHub repository intelligence</p>
-        </div>
+  const downloadSection = (
+    <section className="result-panel" aria-label="Download result">
+      <div className="result-head">
+        <span className="result-label">Download</span>
+        <StatusBadge
+          status={
+            downloadStatus === 'downloaded'
+              ? 'downloaded'
+              : downloadStatus === 'failed'
+                ? 'failed'
+                : 'downloading'
+          }
+        />
+      </div>
+      {downloadResult && (
+        <code className="zip-path">{downloadResult.zip_path}</code>
+      )}
+      {downloadError && (
+        <p className="error-message" role="alert">
+          {downloadError}
+        </p>
+      )}
+    </section>
+  )
 
-        <div className="service-status" aria-label="Service status">
-          <div className="service-row">
-            <span>Frontend</span>
-            <StatusBadge status="running" />
-          </div>
-          <div className="service-row">
-            <span>Backend</span>
-            <StatusBadge status={backendStatus} />
-          </div>
-        </div>
-      </header>
-
-      <div className={downloadResult ? 'workspace-layout' : undefined}>
-        {downloadResult && (
-          <FileSidebar
-            files={files}
-            status={filesStatus}
-            error={filesError}
-            selectedPath={selectedFilePath}
-            onSelect={handleSelectFile}
-          />
-        )}
-      <main className="workspace">
-        <section className="form-panel" aria-label="Download a repository">
-          <form className="repo-form" onSubmit={handleSubmit}>
-            <label className="field-label" htmlFor="repo-url">
-              Public GitHub repository URL
-            </label>
-            <div className="input-row">
-              <input
-                id="repo-url"
-                type="url"
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://github.com/owner/repository"
-                autoComplete="off"
-                spellCheck="false"
-                required
-                disabled={pipelineBusy}
-              />
-              <button type="submit" disabled={pipelineBusy}>
-                {pipelineBusy ? 'Preparing…' : 'Analyze Repository'}
-              </button>
-            </div>
-            <p className="hint">
-              The repository is downloaded, split into chunks, and embedded
-              locally in one step. Question inputs appear when preparation
-              finishes.
-            </p>
-          </form>
-        </section>
-
-        {downloadStatus !== 'idle' && (
-          <section className="result-panel" aria-label="Download result">
-            <div className="result-head">
-              <span className="result-label">Download</span>
-              <StatusBadge
-                status={
-                  downloadStatus === 'downloaded'
-                    ? 'downloaded'
-                    : downloadStatus === 'failed'
-                      ? 'failed'
-                      : 'downloading'
-                }
-              />
-            </div>
-            {downloadResult && (
-              <code className="zip-path">{downloadResult.zip_path}</code>
-            )}
-            {downloadError && (
-              <p className="error-message" role="alert">
-                {downloadError}
-              </p>
-            )}
-          </section>
-        )}
-
-        {detailsLoading && !details && !detailsError && (
-          <p className="loading-note" role="status">
-            Fetching repository details…
+  const statsSection = (
+    <section className="chunks-panel stats-panel" aria-label="Repository statistics">
+      <div className="chunks-header">
+        <div>
+          <span className="result-label">Repository statistics</span>
+          <p className="hint">
+            Counts cover the same UTF-8 text files used for chunking.
+            Tokens are estimated from characters.
           </p>
-        )}
+        </div>
+        <StatusBadge status={pipelineBadgeStatus(statsStatus)} />
+      </div>
 
-        {detailsError && downloadStatus !== 'failed' && (
-          <p className="notice" role="status">
-            Repository details unavailable: {detailsError}
-          </p>
-        )}
+      {statsStatus === 'loading' && (
+        <p className="loading-note" role="status">
+          Counting source files, lines, and estimated tokens…
+        </p>
+      )}
 
-        {details && <RepositoryCard repo={details} />}
+      {statsStatus === 'error' && (
+        <p className="error-message" role="alert">
+          {statsError}
+        </p>
+      )}
 
-        {downloadStatus !== 'idle' && (
-          <section className="chunks-panel" aria-label="Repository statistics">
-            <div className="chunks-header">
-              <div>
-                <span className="result-label">Repository statistics</span>
-                <p className="hint">
-                  Counts cover the same UTF-8 text files used for chunking.
-                  Tokens are estimated from characters.
-                </p>
-              </div>
-              <StatusBadge status={pipelineBadgeStatus(statsStatus)} />
+      {statsStatus === 'success' && stats && (
+        <div className="chunk-viewer">
+          <dl className="embedding-stats stats-grid">
+            <div>
+              <dt>Source files</dt>
+              <dd>{stats.total_files.toLocaleString()}</dd>
             </div>
-
-            {downloadStatus === 'downloading' && (
-              <p className="loading-note" role="status">
-                Waiting for the repository download to finish…
-              </p>
-            )}
-
-            {downloadStatus === 'failed' && (
-              <p className="notice">
-                Statistics are unavailable because the download failed.
-              </p>
-            )}
-
-            {downloadStatus === 'downloaded' &&
-              (statsStatus === 'idle' || statsStatus === 'loading') && (
-                <p className="loading-note" role="status">
-                  Counting source files, lines, and estimated tokens…
-                </p>
-              )}
-
-            {downloadStatus === 'downloaded' && statsStatus === 'error' && (
-              <p className="error-message" role="alert">
-                {statsError}
-              </p>
-            )}
-
-            {statsStatus === 'success' && stats && (
-              <div className="chunk-viewer">
-                <dl className="embedding-stats stats-grid">
-                  <div>
-                    <dt>Source files</dt>
-                    <dd>{stats.total_files.toLocaleString()}</dd>
-                  </div>
-                  <div>
-                    <dt>Source lines</dt>
-                    <dd>{stats.total_lines.toLocaleString()}</dd>
-                  </div>
-                  <div>
-                    <dt>Characters</dt>
-                    <dd>{stats.total_characters.toLocaleString()}</dd>
-                  </div>
-                  <div>
-                    <dt>Estimated tokens</dt>
-                    <dd>{stats.estimated_tokens.toLocaleString()}</dd>
-                  </div>
-                </dl>
-
-                {stats.largest_files.length > 0 && (
-                  <div className="stats-files">
-                    <div className="chunk-summary">
-                      <span>Largest source files</span>
-                      <span>
-                        Tokens estimated as {stats.token_estimate_method}
-                      </span>
-                    </div>
-                    <ol className="stats-file-list">
-                      {stats.largest_files.map((file, index) => (
-                        <li key={file.file_path}>
-                          <span className="search-rank">{index + 1}</span>
-                          <code className="stats-file-path">
-                            {file.file_path}
-                          </code>
-                          <span className="stats-file-meta">
-                            {file.lines.toLocaleString()} lines
-                          </span>
-                          <span className="search-score">
-                            {formatFileSize(file.size)}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        )}
-
-        {downloadStatus === 'downloaded' && downloadResult && (
-          <section className="chunks-panel" aria-label="Source chunks">
-            <div className="chunks-header">
-              <div>
-                <span className="result-label">Source chunks</span>
-                <p className="hint">
-                  JavaScript, JSX, TypeScript, TSX and JSON files are split
-                  along their own syntax; files without a grammar are split by
-                  character size with a small overlap.
-                </p>
-              </div>
-              <StatusBadge status={pipelineBadgeStatus(chunksStatus)} />
+            <div>
+              <dt>Source lines</dt>
+              <dd>{stats.total_lines.toLocaleString()}</dd>
             </div>
-
-            {chunksStatus === 'loading' && (
-              <p className="loading-note" role="status">
-                Reading extracted files and generating chunks…
-              </p>
-            )}
-
-            {chunksStatus === 'error' && (
-              <p className="error-message" role="alert">
-                {chunksError}
-              </p>
-            )}
-
-            {chunksStatus === 'success' &&
-              chunkData &&
-              (chunkData.total_chunks === 0 ? (
-                <p className="notice">
-                  No text source files were found in this repository.
-                </p>
-              ) : (
-                <div className="chunk-viewer">
-                  <div className="chunk-summary">
-                    <span>
-                      {chunkData.total_chunks.toLocaleString()} chunks
-                    </span>
-                    <span>
-                      Chunk #{currentChunk.chunk_index} ·{' '}
-                      {currentChunk.chunk_type ?? 'text'} · lines{' '}
-                      {currentChunk.start_line}–{currentChunk.end_line}
-                    </span>
-                  </div>
-                  <code className="chunk-file">{currentChunk.file_path}</code>
-                  <pre className="chunk-code">
-                    <code>{currentChunk.content}</code>
-                  </pre>
-                  <div className="chunk-nav">
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() =>
-                        setChunkIndex((index) => Math.max(0, index - 1))
-                      }
-                      disabled={chunkIndex === 0}
-                    >
-                      ← Previous
-                    </button>
-                    <span className="chunk-position">
-                      {chunkIndex + 1} / {chunks.length}
-                    </span>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() =>
-                        setChunkIndex((index) =>
-                          Math.min(chunks.length - 1, index + 1),
-                        )
-                      }
-                      disabled={chunkIndex >= chunks.length - 1}
-                    >
-                      Next →
-                    </button>
-                  </div>
-                </div>
-              ))}
-          </section>
-        )}
-
-        {downloadStatus === 'downloaded' && downloadResult && (
-          <section className="chunks-panel" aria-label="Embeddings">
-            <div className="chunks-header">
-              <div>
-                <span className="result-label">Embeddings</span>
-                <p className="hint">
-                  One local vector per chunk is generated with
-                  all-MiniLM-L6-v2 automatically.
-                </p>
-              </div>
-              <StatusBadge status={pipelineBadgeStatus(embeddingsStatus)} />
+            <div>
+              <dt>Characters</dt>
+              <dd>{stats.total_characters.toLocaleString()}</dd>
             </div>
+            <div>
+              <dt>Estimated tokens</dt>
+              <dd>{stats.estimated_tokens.toLocaleString()}</dd>
+            </div>
+          </dl>
 
-            {embeddingsStatus === 'idle' && (
-              <p className="loading-note" role="status">
-                {chunksStatus === 'error'
-                  ? 'Embeddings were skipped because chunking failed.'
-                  : 'Waiting for chunking to finish…'}
-              </p>
-            )}
-
-            {embeddingsStatus === 'loading' && (
-              <p className="loading-note" role="status">
-                Generating embeddings locally. The first run downloads the model
-                and may take a minute…
-              </p>
-            )}
-
-            {embeddingsStatus === 'error' && (
-              <p className="error-message" role="alert">
-                {embeddingsError}
-              </p>
-            )}
-
-            {embeddingsStatus === 'success' &&
-              embeddingData &&
-              (embeddingData.total_embeddings === 0 ? (
-                <p className="notice">
-                  No text chunks were found to embed in this repository.
-                </p>
-              ) : (
-                <div className="chunk-viewer">
-                  <dl className="embedding-stats">
-                    <div>
-                      <dt>Chunks processed</dt>
-                      <dd>{embeddingData.total_chunks.toLocaleString()}</dd>
-                    </div>
-                    <div>
-                      <dt>Embeddings generated</dt>
-                      <dd>{embeddingData.total_embeddings.toLocaleString()}</dd>
-                    </div>
-                    <div>
-                      <dt>Dimensions</dt>
-                      <dd>{embeddingData.dimensions.toLocaleString()}</dd>
-                    </div>
-                  </dl>
-                  <div className="chunk-summary">
-                    <span>
-                      Embedding {embeddingIndex + 1} of {embeddings.length}
-                    </span>
-                    <span>
-                      Chunk #{currentEmbedding.chunk_index} · lines{' '}
-                      {currentEmbedding.start_line}–{currentEmbedding.end_line}
-                    </span>
-                  </div>
-                  <code className="chunk-file">
-                    {currentEmbedding.file_path}
-                  </code>
-                  <pre className="chunk-code embedding-preview">
-                    <code>
-                      {`[${embeddingPreview
-                        .map((value) => value.toFixed(6))
-                        .join(', ')}]`}
+          {stats.largest_files.length > 0 && (
+            <details className="stats-files">
+              <summary className="chunk-summary">
+                <span>Largest source files</span>
+                <span>
+                  Tokens estimated as {stats.token_estimate_method}
+                </span>
+              </summary>
+              <ol className="stats-file-list">
+                {stats.largest_files.map((file, index) => (
+                  <li key={file.file_path}>
+                    <span className="search-rank">{index + 1}</span>
+                    <code className="stats-file-path">
+                      {file.file_path}
                     </code>
-                  </pre>
-                  <p className="hint embedding-hint">
-                    First {embeddingPreview.length} of{' '}
-                    {embeddingData.dimensions} values.
-                  </p>
-                  <div className="chunk-nav">
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() =>
-                        setEmbeddingIndex((index) => Math.max(0, index - 1))
-                      }
-                      disabled={embeddingIndex === 0}
-                    >
-                      ← Previous
-                    </button>
-                    <span className="chunk-position">
-                      {embeddingIndex + 1} / {embeddings.length}
+                    <span className="stats-file-meta">
+                      {file.lines.toLocaleString()} lines
                     </span>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() =>
-                        setEmbeddingIndex((index) =>
-                          Math.min(embeddings.length - 1, index + 1),
-                        )
-                      }
-                      disabled={embeddingIndex >= embeddings.length - 1}
-                    >
-                      Next →
-                    </button>
-                  </div>
-                </div>
-              ))}
-          </section>
-        )}
+                    <span className="search-score">
+                      {formatFileSize(file.size)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
+        </div>
+      )}
+    </section>
+  )
 
-        {downloadStatus === 'downloaded' && downloadResult && (
-          <section
-            className="chunks-panel"
-            aria-label="Parser inspection (developer view)"
-          >
-            <div className="chunks-header">
-              <div>
-                <span className="result-label">Tree-sitter inspection</span>
-                <p className="hint">
-                  Developer view of ingestion: syntax trees, extracted
-                  structures, structure-aware chunks, and pipeline totals.
-                  JavaScript, JSX, TypeScript, TSX and JSON files chunk along
-                  their own syntax; other file types split by size.
-                </p>
-              </div>
+  const chunksSection = (
+    <section className="chunks-panel" aria-label="Source chunks">
+      <div className="chunks-header">
+        <div>
+          <span className="result-label">Source chunks</span>
+          <p className="hint">
+            JavaScript, JSX, TypeScript, TSX and JSON files are split
+            along their own syntax; files without a grammar are split by
+            character size with a small overlap.
+          </p>
+        </div>
+        <StatusBadge status={pipelineBadgeStatus(chunksStatus)} />
+      </div>
+
+      {chunksStatus === 'loading' && (
+        <p className="loading-note" role="status">
+          Reading extracted files and generating chunks…
+        </p>
+      )}
+
+      {chunksStatus === 'idle' && (
+        <p className="loading-note" role="status">
+          {downloadStatus === 'failed'
+            ? 'Chunking was skipped because the download failed.'
+            : 'Waiting for the repository download to finish…'}
+        </p>
+      )}
+
+      {chunksStatus === 'error' && (
+        <p className="error-message" role="alert">
+          {chunksError}
+        </p>
+      )}
+
+      {chunksStatus === 'success' &&
+        chunkData &&
+        (chunkData.total_chunks === 0 ? (
+          <p className="notice">
+            No text source files were found in this repository.
+          </p>
+        ) : (
+          <div className="chunk-viewer">
+            <div className="chunk-summary">
+              <span>
+                {chunkData.total_chunks.toLocaleString()} chunks
+              </span>
+              <span>
+                Chunk #{currentChunk.chunk_index} ·{' '}
+                {currentChunk.chunk_type ?? 'text'} · lines{' '}
+                {currentChunk.start_line}–{currentChunk.end_line}
+              </span>
+            </div>
+            <code className="chunk-file">{currentChunk.file_path}</code>
+            <pre className="chunk-code">
+              <code>{currentChunk.content}</code>
+            </pre>
+            <div className="chunk-nav">
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => setDeveloperView((open) => !open)}
-                aria-expanded={developerView}
+                onClick={() =>
+                  setChunkIndex((index) => Math.max(0, index - 1))
+                }
+                disabled={chunkIndex === 0}
               >
-                {developerView ? 'Hide inspector' : 'Show inspector'}
+                ← Previous
               </button>
-            </div>
-
-            {developerView && (
-              <ParserInspector
-                repoUrl={`https://github.com/${downloadResult.repository}`}
-                filePath={selectedFilePath || currentChunk?.file_path || ''}
-              />
-            )}
-          </section>
-        )}
-
-        {downloadStatus === 'downloaded' && downloadResult && (
-          <section className="chunks-panel" aria-label="Repository analysis">
-            <div className="chunks-header">
-              <div>
-                <span className="result-label">Repository analysis</span>
-                <p className="hint">
-                  Analyse the whole repository with the configured AI model.
-                  Relevant source, configuration, package manifests, and
-                  documentation files are sent directly; semantic search and
-                  RAG chunks are not used.
-                </p>
-                <p className="hint">
-                  Model in use: {analysisModelLabel}
-                </p>
-              </div>
-              <StatusBadge status={pipelineBadgeStatus(analysisStatus)} />
-            </div>
-
-            <div className="input-row analysis-actions">
+              <span className="chunk-position">
+                {chunkIndex + 1} / {chunks.length}
+              </span>
               <button
                 type="button"
-                onClick={handleAnalyzeRepository}
-                disabled={analysisStatus === 'loading'}
+                className="secondary-button"
+                onClick={() =>
+                  setChunkIndex((index) =>
+                    Math.min(chunks.length - 1, index + 1),
+                  )
+                }
+                disabled={chunkIndex >= chunks.length - 1}
               >
-                {analysisStatus === 'loading'
-                  ? 'Analysing entire repository…'
-                  : 'Analyse Entire Repository'}
+                Next →
               </button>
             </div>
+          </div>
+        ))}
+    </section>
+  )
 
-            {analysisStatus === 'loading' && (
-              <p className="loading-note" role="status">
-                Reading files and waiting for {analysisModelLabel} ·{' '}
-                {formatDuration(analysisElapsed)} elapsed. Large repositories
-                are summarised in batches and can take several minutes.
-              </p>
-            )}
+  const embeddingsSection = (
+    <section className="chunks-panel" aria-label="Embeddings">
+      <div className="chunks-header">
+        <div>
+          <span className="result-label">Embeddings</span>
+          <p className="hint">
+            One local vector per chunk is generated with
+            all-MiniLM-L6-v2 automatically.
+          </p>
+        </div>
+        <StatusBadge status={pipelineBadgeStatus(embeddingsStatus)} />
+      </div>
 
-            {analysisStatus === 'error' && (
-              <p className="error-message" role="alert">
-                {analysisError}
-              </p>
-            )}
+      {embeddingsStatus === 'idle' && (
+        <p className="loading-note" role="status">
+          {chunksStatus === 'error'
+            ? 'Embeddings were skipped because chunking failed.'
+            : 'Waiting for chunking to finish…'}
+        </p>
+      )}
 
-            {analysisStatus === 'success' && analysisResult && (
-              <div className="analysis-result">
-                <dl className="embedding-stats analysis-meta">
-                  <div>
-                    <dt>Strategy</dt>
-                    <dd className="analysis-strategy">
-                      {analysisStrategyLabel(
-                        analysisResult.metadata.strategy,
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Files analysed</dt>
-                    <dd>
-                      {analysisResult.metadata.total_files.toLocaleString()}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Estimated repo tokens</dt>
-                    <dd>
-                      {analysisResult.metadata.estimated_repository_tokens.toLocaleString()}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Model context</dt>
-                    <dd>
-                      {analysisResult.metadata.context_capacity.toLocaleString()}{' '}
-                      tokens
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Input budget</dt>
-                    <dd>
-                      {analysisResult.metadata.available_input_tokens.toLocaleString()}{' '}
-                      tokens
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Batches</dt>
-                    <dd>
-                      {analysisResult.metadata.batches_processed > 0
-                        ? analysisResult.metadata.batches_processed.toLocaleString()
-                        : '—'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Merge stages</dt>
-                    <dd>
-                      {analysisResult.metadata.hierarchy_stages > 0
-                        ? analysisResult.metadata.hierarchy_stages.toLocaleString()
-                        : '—'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Elapsed</dt>
-                    <dd>
-                      {formatDuration(
-                        analysisResult.metadata.elapsed_seconds,
-                      )}
-                    </dd>
-                  </div>
-                </dl>
+      {embeddingsStatus === 'loading' && (
+        <p className="loading-note" role="status">
+          Generating embeddings locally. The first run downloads the model
+          and may take a minute…
+        </p>
+      )}
 
-                <p className="hint analysis-source">
-                  {providerLabel(analysisResult.metadata.provider)} ·{' '}
-                  {analysisResult.metadata.model} · context window from{' '}
-                  {analysisResult.metadata.context_source}. Reserved for
-                  instructions, output, and safety:{' '}
-                  {(
-                    analysisResult.metadata.reserved_tokens
-                      .system_instructions +
-                    analysisResult.metadata.reserved_tokens.analysis_prompt +
-                    analysisResult.metadata.reserved_tokens.expected_output +
-                    analysisResult.metadata.reserved_tokens.safety_margin
-                  ).toLocaleString()}{' '}
-                  tokens.
-                </p>
+      {embeddingsStatus === 'error' && (
+        <p className="error-message" role="alert">
+          {embeddingsError}
+        </p>
+      )}
 
-                <span className="result-label">Overview</span>
-                <pre className="chunk-code analysis-output">
-                  <code>{analysisResult.analysis}</code>
-                </pre>
+      {embeddingsStatus === 'success' &&
+        embeddingData &&
+        (embeddingData.total_embeddings === 0 ? (
+          <p className="notice">
+            No text chunks were found to embed in this repository.
+          </p>
+        ) : (
+          <div className="chunk-viewer">
+            <dl className="embedding-stats">
+              <div>
+                <dt>Chunks processed</dt>
+                <dd>{embeddingData.total_chunks.toLocaleString()}</dd>
               </div>
-            )}
-          </section>
-        )}
-
-        <section className="chunks-panel" aria-label="Repository questions">
-          <div className="chunks-header">
-            <div>
-              <span className="result-label">Ask the repository</span>
-              <p className="hint">
-                Ask a question about this repository. The fifteen most relevant
-                chunks are retrieved automatically and sent to the configured
-                AI model as context. Selecting a file adds it as extra context.
-              </p>
+              <div>
+                <dt>Embeddings generated</dt>
+                <dd>{embeddingData.total_embeddings.toLocaleString()}</dd>
+              </div>
+              <div>
+                <dt>Dimensions</dt>
+                <dd>{embeddingData.dimensions.toLocaleString()}</dd>
+              </div>
+            </dl>
+            <div className="chunk-summary">
+              <span>
+                Embedding {embeddingIndex + 1} of {embeddings.length}
+              </span>
+              <span>
+                Chunk #{currentEmbedding.chunk_index} · lines{' '}
+                {currentEmbedding.start_line}–{currentEmbedding.end_line}
+              </span>
+            </div>
+            <code className="chunk-file">
+              {currentEmbedding.file_path}
+            </code>
+            <pre className="chunk-code embedding-preview">
+              <code>
+                {`[${embeddingPreview
+                  .map((value) => value.toFixed(6))
+                  .join(', ')}]`}
+              </code>
+            </pre>
+            <p className="hint embedding-hint">
+              First {embeddingPreview.length} of{' '}
+              {embeddingData.dimensions} values.
+            </p>
+            <div className="chunk-nav">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() =>
+                  setEmbeddingIndex((index) => Math.max(0, index - 1))
+                }
+                disabled={embeddingIndex === 0}
+              >
+                ← Previous
+              </button>
+              <span className="chunk-position">
+                {embeddingIndex + 1} / {embeddings.length}
+              </span>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() =>
+                  setEmbeddingIndex((index) =>
+                    Math.min(embeddings.length - 1, index + 1),
+                  )
+                }
+                disabled={embeddingIndex >= embeddings.length - 1}
+              >
+                Next →
+              </button>
             </div>
           </div>
+        ))}
+    </section>
+  )
 
-          {!repoReady && (
-            <p className="loading-note ollama-gate" role="status">
-              {gateMessage}
-            </p>
-          )}
+  const inspectorSection = downloadResult && (
+    <section
+      className="chunks-panel"
+      aria-label="Parser inspection (developer view)"
+    >
+      <div className="chunks-header">
+        <div>
+          <span className="result-label">Tree-sitter inspection</span>
+          <p className="hint">
+            Developer view of ingestion: syntax trees, extracted
+            structures, structure-aware chunks, and pipeline totals.
+            JavaScript, JSX, TypeScript, TSX and JSON files chunk along
+            their own syntax; other file types split by size.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => setDeveloperView((open) => !open)}
+          aria-expanded={developerView}
+        >
+          {developerView ? 'Hide inspector' : 'Show inspector'}
+        </button>
+      </div>
 
-          {repoReady && (
+      {developerView && (
+        <ParserInspector
+          repoUrl={`https://github.com/${downloadResult.repository}`}
+          filePath={selectedFilePath || currentChunk?.file_path || ''}
+        />
+      )}
+    </section>
+  )
+
+  const analysisSection = (
+    <section className="chunks-panel" aria-label="Repository analysis">
+      <div className="chunks-header">
+        <div>
+          <span className="result-label">Repository analysis</span>
+          <p className="hint">
+            Analyse the whole repository with the configured AI model.
+            Relevant source, configuration, package manifests, and
+            documentation files are sent directly; semantic search and
+            RAG chunks are not used.
+          </p>
+          <p className="hint">
+            Model in use: {analysisModelLabel}
+          </p>
+        </div>
+        <StatusBadge status={pipelineBadgeStatus(analysisStatus)} />
+      </div>
+
+      <div className="input-row analysis-actions">
+        <button
+          type="button"
+          onClick={handleAnalyzeRepository}
+          disabled={analysisStatus === 'loading'}
+        >
+          {analysisStatus === 'loading'
+            ? 'Analysing entire repository…'
+            : 'Analyse Entire Repository'}
+        </button>
+      </div>
+
+      {analysisStatus === 'loading' && (
+        <p className="loading-note" role="status">
+          Reading files and waiting for {analysisModelLabel} ·{' '}
+          {formatDuration(analysisElapsed)} elapsed. Large repositories
+          are summarised in batches and can take several minutes.
+        </p>
+      )}
+
+      {analysisStatus === 'error' && (
+        <p className="error-message" role="alert">
+          {analysisError}
+        </p>
+      )}
+
+      {analysisStatus === 'success' && analysisResult && (
+        <div className="analysis-result">
+          <dl className="embedding-stats analysis-meta">
+            <div>
+              <dt>Strategy</dt>
+              <dd className="analysis-strategy">
+                {analysisStrategyLabel(
+                  analysisResult.metadata.strategy,
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Files analysed</dt>
+              <dd>
+                {analysisResult.metadata.total_files.toLocaleString()}
+              </dd>
+            </div>
+            <div>
+              <dt>Estimated repo tokens</dt>
+              <dd>
+                {analysisResult.metadata.estimated_repository_tokens.toLocaleString()}
+              </dd>
+            </div>
+            <div>
+              <dt>Model context</dt>
+              <dd>
+                {analysisResult.metadata.context_capacity.toLocaleString()}{' '}
+                tokens
+              </dd>
+            </div>
+            <div>
+              <dt>Input budget</dt>
+              <dd>
+                {analysisResult.metadata.available_input_tokens.toLocaleString()}{' '}
+                tokens
+              </dd>
+            </div>
+            <div>
+              <dt>Batches</dt>
+              <dd>
+                {analysisResult.metadata.batches_processed > 0
+                  ? analysisResult.metadata.batches_processed.toLocaleString()
+                  : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Merge stages</dt>
+              <dd>
+                {analysisResult.metadata.hierarchy_stages > 0
+                  ? analysisResult.metadata.hierarchy_stages.toLocaleString()
+                  : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Elapsed</dt>
+              <dd>
+                {formatDuration(
+                  analysisResult.metadata.elapsed_seconds,
+                )}
+              </dd>
+            </div>
+          </dl>
+
+          <p className="hint analysis-source">
+            {providerLabel(analysisResult.metadata.provider)} ·{' '}
+            {analysisResult.metadata.model} · context window from{' '}
+            {analysisResult.metadata.context_source}. Reserved for
+            instructions, output, and safety:{' '}
+            {(
+              analysisResult.metadata.reserved_tokens
+                .system_instructions +
+              analysisResult.metadata.reserved_tokens.analysis_prompt +
+              analysisResult.metadata.reserved_tokens.expected_output +
+              analysisResult.metadata.reserved_tokens.safety_margin
+            ).toLocaleString()}{' '}
+            tokens.
+          </p>
+
+          <span className="result-label">Overview</span>
+          <pre className="chunk-code analysis-output">
+            <code>{analysisResult.analysis}</code>
+          </pre>
+        </div>
+      )}
+    </section>
+  )
+
+  const chatSection = (
+    <section className="chunks-panel chat-panel" aria-label="Repository questions">
+      <RepositoryChat
+        repository={downloadResult?.repository ?? ''}
+        ready={repoReady}
+        gateMessage={gateMessage}
+        busy={attachmentStatus === 'loading'}
+        onSend={askQuestion}
+        attachmentPath={attachment?.file_path ?? null}
+        providerLabel={providerLabel}
+        initialQuestion={DEFAULT_QUESTION}
+        attachmentSlot={
+          repoReady ? (
             <>
-              <form className="ollama-form" onSubmit={handleOllamaSubmit}>
-                <label className="field-label" htmlFor="ollama-message">
-                  Question
-                </label>
-                <div className="input-row">
-                  <input
-                    id="ollama-message"
-                    type="text"
-                    value={ollamaMessage}
-                    onChange={(event) => setOllamaMessage(event.target.value)}
-                    placeholder="How does authentication work?"
-                    autoComplete="off"
-                    maxLength={4000}
-                    disabled={ollamaBusy}
-                  />
-                  <button type="submit" disabled={ollamaBusy}>
-                    {ollamaStatus === 'loading' ? 'Thinking…' : 'Send Message'}
-                  </button>
-                </div>
-              </form>
-
               {attachmentStatus === 'loading' && (
                 <p className="loading-note attachment-note" role="status">
                   Loading file content…
@@ -1136,81 +1000,151 @@ export default function App() {
                   </button>
                 </div>
               )}
-
-              {ollamaStatus === 'loading' && (
-                <p className="loading-note" role="status">
-                  Retrieving relevant chunks and waiting for the model…
-                </p>
-              )}
-
-              {ollamaStatus === 'error' && (
-                <p className="error-message" role="alert">
-                  {ollamaError}
-                </p>
-              )}
-
-              {ollamaStatus === 'success' &&
-                ollamaResult &&
-                (ollamaResult.sources.length === 0 ? (
-                  <p className="notice">
-                    No repository chunks were retrieved for this question.
-                  </p>
-                ) : (
-                  <div className="ollama-result">
-                    <span className="result-label">Answer</span>
-                    <pre className="chunk-code ollama-response">
-                      <code>{ollamaResult.answer}</code>
-                    </pre>
-
-                    {ollamaResult.provider && (
-                      <p className="hint ollama-source">
-                        Answered by{' '}
-                        {providerLabel(ollamaResult.provider)} ·{' '}
-                        {ollamaResult.model}
-                      </p>
-                    )}
-
-                    <div className="retrieved-sources">
-                      <span className="result-label">Retrieved sources</span>
-                      <p className="search-summary">
-                        Top {ollamaResult.sources.length} of{' '}
-                        {ollamaResult.total_chunks.toLocaleString()} chunks used
-                        as context.
-                      </p>
-                      <div className="search-results">
-                        {ollamaResult.sources.map((source, index) => (
-                          <article
-                            className="search-result"
-                            key={`${source.file_path}-${source.chunk_index}`}
-                          >
-                            <div className="search-result-head">
-                              <span className="search-rank">
-                                #{index + 1}
-                              </span>
-                              <code className="search-path">
-                                {source.file_path}
-                              </code>
-                              <span className="search-score">
-                                similarity {source.similarity.toFixed(4)}
-                              </span>
-                            </div>
-                            <div className="search-meta">
-                              Chunk #{source.chunk_index} · lines{' '}
-                              {source.start_line}–{source.end_line}
-                            </div>
-                            <pre className="chunk-code search-code">
-                              <code>{source.content}</code>
-                            </pre>
-                          </article>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ))}
             </>
+          ) : null
+        }
+      />
+    </section>
+  )
+
+  return (
+    <div className={`app${downloadResult ? ' app-with-files' : ''}`}>
+      <header className="site-header">
+        <div className="brand">
+          <h1 className="brand-title">GitScope</h1>
+          <p className="tagline">AI-powered GitHub repository intelligence</p>
+        </div>
+
+        <div className="service-status" aria-label="Service status">
+          <div className="service-row">
+            <span>Frontend</span>
+            <StatusBadge status="running" />
+          </div>
+          <div className="service-row">
+            <span>Backend</span>
+            <StatusBadge status={backendStatus} />
+          </div>
+        </div>
+      </header>
+
+      <div className={downloadResult ? 'workspace-layout' : undefined}>
+        {downloadResult && (
+          <FileSidebar
+            files={files}
+            status={filesStatus}
+            error={filesError}
+            selectedPath={selectedFilePath}
+            onSelect={handleSelectFile}
+          />
+        )}
+        <main className="workspace">
+          <section className="form-panel" aria-label="Download a repository">
+            <form className="repo-form" onSubmit={handleSubmit}>
+              <label className="field-label" htmlFor="repo-url">
+                Public GitHub repository URL
+              </label>
+              <div className="input-row">
+                <input
+                  id="repo-url"
+                  type="url"
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder="https://github.com/owner/repository"
+                  autoComplete="off"
+                  spellCheck="false"
+                  required
+                  disabled={pipelineBusy}
+                />
+                <button type="submit" disabled={pipelineBusy}>
+                  {pipelineBusy ? 'Preparing…' : 'Analyze Repository'}
+                </button>
+              </div>
+              <p className="hint">
+                The repository is downloaded, split into chunks, and embedded
+                locally in one step.
+              </p>
+            </form>
+
+            {repoSummaryVisible && (
+              <div className="repo-summary">
+                <div className="repo-summary-identity">
+                  {detailsLoading && !details && !detailsError && (
+                    <p className="loading-note" role="status">
+                      Fetching repository details…
+                    </p>
+                  )}
+
+                  {detailsError && downloadStatus !== 'failed' && (
+                    <p className="notice" role="status">
+                      Repository details unavailable: {detailsError}
+                    </p>
+                  )}
+
+                  {details && <RepositoryCard repo={details} />}
+                </div>
+                {downloadResult && (
+                  <div className="repo-summary-stats">{statsSection}</div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {downloadError && (
+            <p className="error-message" role="alert">
+              {downloadError}
+            </p>
           )}
-        </section>
-      </main>
+
+          {downloadStatus === 'idle' ? (
+            chatSection
+          ) : (
+            <div className="content-grid">
+              <div className="chat-column">
+                {chatSection}
+                {downloadResult && analysisSection}
+              </div>
+
+              <div className="pipeline-column">
+                <section
+                  className="pipeline-rail"
+                  aria-label="Preparation pipeline"
+                >
+                  <span className="result-label">Pipeline</span>
+                  <ol className="pipeline-steps-vertical">
+                    <li>
+                      <span>Download</span>
+                      <StatusBadge
+                        status={
+                          downloadStatus === 'downloaded'
+                            ? 'downloaded'
+                            : downloadStatus === 'failed'
+                              ? 'failed'
+                              : 'downloading'
+                        }
+                      />
+                    </li>
+                    <li>
+                      <span>Chunks</span>
+                      <StatusBadge
+                        status={pipelineBadgeStatus(chunksStatus)}
+                      />
+                    </li>
+                    <li>
+                      <span>Embeddings</span>
+                      <StatusBadge
+                        status={pipelineBadgeStatus(embeddingsStatus)}
+                      />
+                    </li>
+                  </ol>
+                </section>
+                {downloadSection}
+                {chunksSection}
+                {embeddingsSection}
+                {inspectorSection}
+              </div>
+            </div>
+          )}
+        </main>
       </div>
     </div>
   )
